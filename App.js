@@ -1,82 +1,119 @@
-import {
-  ActivityIndicator,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { useEffect, useState } from 'react';
-import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useEffect, useMemo, useReducer, useCallback } from "react";
+import { Alert } from "react-native";
+import Onboarding from "./screens/Onboarding";
+import Profile from "./screens/Profile";
+import SplashScreen from "./screens/SplashScreen";
+import Home from "./screens/Home";
+import { StatusBar } from "expo-status-bar";
 
-import Onboarding from './screens/Onboarding';
-import Profile from './screens/Profile';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import { getItemFromAsyncStorage } from './shared/utils';
-
-import { CONSTANTS } from './shared/constants';
-
-const { SCREENS, ASYNC_STORAGE_CONSTANTS } = CONSTANTS;
+import { AuthContext } from "./contexts/AuthContext";
 
 const Stack = createNativeStackNavigator();
 
-export default function App() {
-  const [showLoader, setShowLoader] = useState(true);
-  const [loggedIn, setLoggedIn] = useState(false);
+export default function App({ navigation }) {
+  const [state, dispatch] = useReducer(
+    (prevState, action) => {
+      switch (action.type) {
+        case "onboard":
+          return {
+            ...prevState,
+            isLoading: false,
+            isOnboardingCompleted: action.isOnboardingCompleted,
+          };
+      }
+    },
+    {
+      isLoading: true,
+      isOnboardingCompleted: false,
+    }
+  );
 
   useEffect(() => {
-    init();
+    (async () => {
+      let profileData = [];
+      try {
+        const getProfile = await AsyncStorage.getItem("profile");
+        if (getProfile !== null) {
+          profileData = getProfile;
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (Object.keys(profileData).length != 0) {
+          dispatch({ type: "onboard", isOnboardingCompleted: true });
+        } else {
+          dispatch({ type: "onboard", isOnboardingCompleted: false });
+        }
+      }
+    })();
   }, []);
 
-  const init = async () => {
-    const isLoggedIn = await getItemFromAsyncStorage(
-      ASYNC_STORAGE_CONSTANTS.LOGGED_IN
-    );
+  const authContext = useMemo(
+    () => ({
+      onboard: async data => {
+        try {
+          const jsonValue = JSON.stringify(data);
+          await AsyncStorage.setItem("profile", jsonValue);
+        } catch (e) {
+          console.error(e);
+        }
 
-    if (isLoggedIn === 'true') {
-      setLoggedIn(true);
-    }
+        dispatch({ type: "onboard", isOnboardingCompleted: true });
+      },
+      update: async data => {
+        try {
+          const jsonValue = JSON.stringify(data);
+          await AsyncStorage.setItem("profile", jsonValue);
+        } catch (e) {
+          console.error(e);
+        }
 
-    setShowLoader(false);
-  };
+        Alert.alert("Success", "Successfully saved changes!");
+      },
+      logout: async () => {
+        try {
+          await AsyncStorage.clear();
+        } catch (e) {
+          console.error(e);
+        }
 
-  const getInitialRouteName = () => {
-    if (loggedIn) {
-      return SCREENS.PROFILE;
-    } else {
-      return SCREENS.ONBOARDING;
-    }
-  };
+        dispatch({ type: "onboard", isOnboardingCompleted: false });
+      },
+    }),
+    []
+  );
 
-  const getUi = () => {
-    if (showLoader) {
-      return <ActivityIndicator size={'large'} />;
-    } else {
-      return (
-        <SafeAreaView style={styles.container}>
-          <NavigationContainer>
-            <Stack.Navigator initialRouteName={getInitialRouteName()}>
-              <Stack.Screen name={SCREENS.ONBOARDING} component={Onboarding} />
+  if (state.isLoading) {
+    return <SplashScreen />;
+  }
+
+  return (
+    <AuthContext.Provider value={authContext}>
+      <StatusBar style="dark" />
+      <NavigationContainer>
+        <Stack.Navigator>
+          {state.isOnboardingCompleted ? (
+            <>
               <Stack.Screen
+                name="Home"
+                component={Home}
                 options={{ headerShown: false }}
-                name={SCREENS.PROFILE}
-                component={Profile}
               />
-            </Stack.Navigator>
-          </NavigationContainer>
-        </SafeAreaView>
-      );
-    }
-  };
-
-  return getUi();
+              <Stack.Screen name="Profile" component={Profile} />
+            </>
+          ) : (
+            <Stack.Screen
+              name="Onboarding"
+              component={Onboarding}
+              options={{ headerShown: false }}
+            />
+          )}
+        </Stack.Navigator>
+      </NavigationContainer>
+    </AuthContext.Provider>
+  );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    paddingTop: 20,
-    backgroundColor: 'gray',
-    width: '100%',
-    height: '100%',
-  },
-});

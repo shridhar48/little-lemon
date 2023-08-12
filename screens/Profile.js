@@ -1,88 +1,105 @@
+import React, { useState, useEffect, useContext, useCallback } from "react";
 import {
   View,
-  Text,
   Image,
+  StyleSheet,
+  Text,
+  KeyboardAvoidingView,
+  Platform,
   TextInput,
   Pressable,
   ScrollView,
-  Alert,
-} from 'react-native';
-import React, { useState, useCallback } from 'react';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import * as ImagePicker from 'expo-image-picker';
-import { isArray } from 'lodash';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-
-import { Initials } from '../components';
-
-import {
-  getItemFromAsyncStorage,
-  saveItemToAsyncStorage,
-  validateEmail,
-  validateName,
-} from '../shared/utils';
-import { CONSTANTS } from '../shared/constants';
-
-import styles from './profileStyles';
-
-const { ASYNC_STORAGE_CONSTANTS, PROFILE_MODEL, SCREENS } = CONSTANTS;
+} from "react-native";
+import { validateEmail } from "../utils";
+import { AuthContext } from "../contexts/AuthContext";
+import Checkbox from "expo-checkbox";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
+import { useFonts } from "expo-font";
+import * as SplashScreen from "expo-splash-screen";
 
 const Profile = () => {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phoneNo, setPhoneNo] = useState('');
-  const [profileImgUrl, setProfileImgUrl] = useState('');
-  const [notificationPreference, setNotificationPreference] = useState(
-    PROFILE_MODEL.notificationPreference
-  );
+  const [profile, setProfile] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phoneNumber: "",
+    orderStatuses: false,
+    passwordChanges: false,
+    specialOffers: false,
+    newsletter: false,
+    image: "",
+  });
+  const [discard, setDiscard] = useState(false);
 
-  const navigation = useNavigation();
-
-  useFocusEffect(
-    useCallback(() => {
-      init();
-    }, [])
-  );
-
-  const init = async () => {
-    let profileObj =
-      (await getItemFromAsyncStorage(ASYNC_STORAGE_CONSTANTS.PROFILE)) ||
-      PROFILE_MODEL;
-
-    if (profileObj) {
-      profileObj = JSON.parse(profileObj);
-
-      setFirstName(profileObj?.firstName);
-      setLastName(profileObj?.lastName);
-      setEmail(profileObj?.email);
-      setProfileImgUrl(profileObj?.profileImgUrl);
-      setPhoneNo(profileObj?.phoneNo);
-
-      if (isArray(profileObj?.notificationPreference)) {
-        setNotificationPreference(profileObj?.notificationPreference);
+  useEffect(() => {
+    (async () => {
+      try {
+        const getProfile = await AsyncStorage.getItem("profile");
+        setProfile(JSON.parse(getProfile));
+        setDiscard(false);
+      } catch (e) {
+        console.error(e);
       }
+    })();
+  }, [discard]);
+
+  const validateName = name => {
+    if (name.length > 0) {
+      return name.match(/[^a-zA-Z]/);
+    } else {
+      return true;
     }
   };
 
-  const updateProfile = async (imageUrl = '') => {
-    const profileObj = { ...PROFILE_MODEL };
+  const validateNumber = number => {
+    if (isNaN(number)) {
+      return false;
+    } else if (number.length == 10) {
+      return true;
+    }
+  };
 
-    profileObj.firstName = firstName;
-    profileObj.lastName = lastName;
-    profileObj.email = email;
-    profileObj.profileImgUrl = imageUrl;
-    profileObj.phoneNo = phoneNo;
-    profileObj.notificationPreference = notificationPreference;
+  const { update } = useContext(AuthContext);
+  const { logout } = useContext(AuthContext);
 
-    await saveItemToAsyncStorage(
-      ASYNC_STORAGE_CONSTANTS.PROFILE,
-      JSON.stringify(profileObj)
+  const updateProfile = (key, value) => {
+    setProfile(prevState => ({
+      ...prevState,
+      [key]: value,
+    }));
+  };
+
+  // FONTS
+  const [fontsLoaded] = useFonts({
+    "Karla-Regular": require("../assets/fonts/Karla-Regular.ttf"),
+    "Karla-Medium": require("../assets/fonts/Karla-Medium.ttf"),
+    "Karla-Bold": require("../assets/fonts/Karla-Bold.ttf"),
+    "Karla-ExtraBold": require("../assets/fonts/Karla-ExtraBold.ttf"),
+    "MarkaziText-Regular": require("../assets/fonts/MarkaziText-Regular.ttf"),
+    "MarkaziText-Medium": require("../assets/fonts/MarkaziText-Medium.ttf"),
+  });
+
+  const onLayoutRootView = useCallback(async () => {
+    if (fontsLoaded) {
+      await SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded]);
+
+  if (!fontsLoaded) {
+    return null;
+  }
+
+  const getIsFormValid = () => {
+    return (
+      !validateName(profile.firstName) &&
+      !validateName(profile.lastName) &&
+      validateEmail(profile.email) &&
+      validateNumber(profile.phoneNumber)
     );
   };
 
   const pickImage = async () => {
-    // No permissions request is necessary for launching the image library
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.All,
       allowsEditing: true,
@@ -90,207 +107,333 @@ const Profile = () => {
       quality: 1,
     });
 
-    console.log(result);
-
     if (!result.canceled) {
-      setProfileImgUrl(result.assets[0].uri);
-
-      updateProfile(result.assets[0].uri);
+      setProfile(prevState => ({
+        ...prevState,
+        ["image"]: result.assets[0].uri,
+      }));
     }
   };
 
-  const logOut = async () => {
-    await saveItemToAsyncStorage(
-      ASYNC_STORAGE_CONSTANTS.PROFILE,
-      JSON.stringify(PROFILE_MODEL)
-    );
-    await saveItemToAsyncStorage(ASYNC_STORAGE_CONSTANTS.LOGGED_IN, 'false');
-
-    navigation.navigate(SCREENS.ONBOARDING);
-  };
-
-  const validateInput = () => {
-    const isValidFirstName = validateName(firstName);
-    const isValidEmail = validateEmail(email);
-
-    if (isValidFirstName && isValidEmail) {
-      console.log('Valid inputs updating profile');
-      updateProfile(profileImgUrl);
-    } else {
-      console.log('Invalid inputs');
-
-      Alert.alert('Please enter correct firstname and email');
-    }
-  };
-
-  const getProfileImage = (profileView = false) => {
-    if (profileImgUrl) {
-      return (
-        <Image
-          source={{ uri: profileImgUrl }}
-          resizeMode='contain'
-          style={
-            profileView
-              ? { height: 80, width: 80, borderRadius: 80 / 2 }
-              : { height: 50, width: 50, borderRadius: 50 / 2 }
-          }
-        />
-      );
-    } else {
-      return (
-        <Initials
-          profileView={profileView}
-          firstName={firstName}
-          lastName={lastName}
-        />
-      );
-    }
-  };
-
-  const updateCheckBox = (selectedKey) => {
-    const updatedNotificationPreferences = notificationPreference.map(
-      ({ key, label, isSelected }) => {
-        if (key === selectedKey) {
-          const updatedObj = { key, label, isSelected: !isSelected };
-
-          return updatedObj;
-        }
-
-        return { key, label, isSelected };
-      }
-    );
-
-    setNotificationPreference(updatedNotificationPreferences);
-  };
-
-  renderCheckBox = () => {
-    return (
-      <View style={styles.checkBoxContainer}>
-        {notificationPreference.map(({ key, label, isSelected }) => {
-          return (
-            <View key={key} style={styles.checkBoxRow}>
-              <Pressable
-                style={isSelected ? styles.selected : styles.unselected}
-                onPress={() => {
-                  updateCheckBox(key);
-                }}
-              >
-                {isSelected ? (
-                  <Ionicons name='checkmark' size={10} color='white' />
-                ) : (
-                  <View />
-                )}
-              </Pressable>
-              <Text style={styles.checkBoxLabel}>{label}</Text>
-            </View>
-          );
-        })}
-      </View>
-    );
+  const removeImage = () => {
+    setProfile(prevState => ({
+      ...prevState,
+      ["image"]: "",
+    }));
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      onLayout={onLayoutRootView}
+    >
       <View style={styles.header}>
-        <Pressable style={styles.backButtonContainer}>
-          <Ionicons name='arrow-back' size={25} color='white' />
-        </Pressable>
         <Image
-          source={require('../assets/images/Logo.png')}
-          resizeMode='contain'
+          style={styles.logo}
+          source={require("../img/littleLemonLogo.png")}
+          accessible={true}
+          accessibilityLabel={"Little Lemon Logo"}
         />
-        {getProfileImage()}
       </View>
-      <ScrollView
-        nestedScrollEnabled={true}
-        style={styles.containerStyle}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.contentContainerStyle}
-      >
-        <Text style={styles.mainText}>Personal Information</Text>
-        <Text style={styles.subLabel}>Avatar</Text>
-        <View style={styles.profilePictureView}>
-          {getProfileImage(true)}
-          <Pressable
-            style={styles.changeButton}
-            onPress={() => {
-              pickImage();
-            }}
-          >
-            <Text style={styles.buttonLabel}>Change</Text>
-          </Pressable>
-          <Pressable style={styles.removeButton}>
-            <Text style={styles.buttonLabel1}>Remove</Text>
-          </Pressable>
+      <ScrollView style={styles.viewScroll}>
+        <Text style={styles.headertext}>Personal information</Text>
+        <Text style={styles.text}>Avatar</Text>
+        <View style={styles.avatarContainer}>
+          {profile.image ? (
+            <Image source={{ uri: profile.image }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarEmpty}>
+              <Text style={styles.avatarEmptyText}>
+                {profile.firstName && Array.from(profile.firstName)[0]}
+                {profile.lastName && Array.from(profile.lastName)[0]}
+              </Text>
+            </View>
+          )}
+          <View style={styles.avatarButtons}>
+            <Pressable
+              style={styles.changeBtn}
+              title="Pick an image from camera roll"
+              onPress={pickImage}
+            >
+              <Text style={styles.saveBtnText}>Change</Text>
+            </Pressable>
+            <Pressable
+              style={styles.removeBtn}
+              title="Pick an image from camera roll"
+              onPress={removeImage}
+            >
+              <Text style={styles.discardBtnText}>Remove</Text>
+            </Pressable>
+          </View>
         </View>
-        <Text style={styles.subLabel}>First Name</Text>
-        <TextInput
-          style={styles.profileTextInput}
-          cursorColor={'gray'}
-          value={firstName}
-          onChangeText={(text) => {
-            setFirstName(text);
-          }}
-        />
-        <Text style={styles.subLabel}>Last Name</Text>
-        <TextInput
-          style={styles.profileTextInput}
-          cursorColor={'gray'}
-          value={lastName}
-          onChangeText={(text) => {
-            setLastName(text);
-          }}
-        />
-        <Text style={styles.subLabel}>Email</Text>
-        <TextInput
-          style={styles.profileTextInput}
-          cursorColor={'gray'}
-          value={email}
-          onChangeText={(text) => {
-            setEmail(text);
-          }}
-        />
-        <Text style={styles.subLabel}>Phone Number</Text>
-        <TextInput
-          style={styles.profileTextInput}
-          keyboardType='number-pad'
-          cursorColor={'gray'}
-          value={phoneNo}
-          onChangeText={(text) => {
-            setPhoneNo(text);
-          }}
-        />
-        <Text style={styles.mainText}>Email Notifications</Text>
-        {renderCheckBox()}
-        <Pressable
-          style={styles.logOutButton}
-          onPress={() => {
-            logOut();
-          }}
+        <Text
+          style={[
+            styles.text,
+            !validateName(profile.firstName) ? "" : styles.error,
+          ]}
         >
-          <Text style={styles.mainText2}>Log out</Text>
+          First Name
+        </Text>
+        <TextInput
+          style={styles.inputBox}
+          value={profile.firstName}
+          onChangeText={newValue => updateProfile("firstName", newValue)}
+          placeholder={"First Name"}
+        />
+        <Text
+          style={[
+            styles.text,
+            !validateName(profile.lastName) ? "" : styles.error,
+          ]}
+        >
+          Last Name
+        </Text>
+        <TextInput
+          style={styles.inputBox}
+          value={profile.lastName}
+          onChangeText={newValue => updateProfile("lastName", newValue)}
+          placeholder={"Last Name"}
+        />
+        <Text
+          style={[
+            styles.text,
+            validateEmail(profile.email) ? "" : styles.error,
+          ]}
+        >
+          Email
+        </Text>
+        <TextInput
+          style={styles.inputBox}
+          value={profile.email}
+          keyboardType="email-address"
+          onChangeText={newValue => updateProfile("email", newValue)}
+          placeholder={"Email"}
+        />
+        <Text
+          style={[
+            styles.text,
+            validateNumber(profile.phoneNumber) ? "" : styles.error,
+          ]}
+        >
+          Phone number (10 digit)
+        </Text>
+        <TextInput
+          style={styles.inputBox}
+          value={profile.phoneNumber}
+          keyboardType="phone-pad"
+          onChangeText={newValue => updateProfile("phoneNumber", newValue)}
+          placeholder={"Phone number"}
+        />
+        <Text style={styles.headertext}>Email notifications</Text>
+        <View style={styles.section}>
+          <Checkbox
+            style={styles.checkbox}
+            value={profile.orderStatuses}
+            onValueChange={newValue => updateProfile("orderStatuses", newValue)}
+            color={"#495e57"}
+          />
+          <Text style={styles.paragraph}>Order statuses</Text>
+        </View>
+        <View style={styles.section}>
+          <Checkbox
+            style={styles.checkbox}
+            value={profile.passwordChanges}
+            onValueChange={newValue =>
+              updateProfile("passwordChanges", newValue)
+            }
+            color={"#495e57"}
+          />
+          <Text style={styles.paragraph}>Password changes</Text>
+        </View>
+        <View style={styles.section}>
+          <Checkbox
+            style={styles.checkbox}
+            value={profile.specialOffers}
+            onValueChange={newValue => updateProfile("specialOffers", newValue)}
+            color={"#495e57"}
+          />
+          <Text style={styles.paragraph}>Special offers</Text>
+        </View>
+        <View style={styles.section}>
+          <Checkbox
+            style={styles.checkbox}
+            value={profile.newsletter}
+            onValueChange={newValue => updateProfile("newsletter", newValue)}
+            color={"#495e57"}
+          />
+          <Text style={styles.paragraph}>Newsletter</Text>
+        </View>
+        <Pressable style={styles.btn} onPress={() => logout()}>
+          <Text style={styles.btntext}>Log out</Text>
         </Pressable>
-        <View style={styles.bottomButtonContainer}>
-          <Pressable
-            style={styles.discardButton}
-            onPress={() => {
-              init();
-            }}
-          >
-            <Text style={styles.buttonLabel1}>Discard</Text>
+        <View style={styles.buttons}>
+          <Pressable style={styles.discardBtn} onPress={() => setDiscard(true)}>
+            <Text style={styles.discardBtnText}>Discard changes</Text>
           </Pressable>
           <Pressable
-            style={styles.saveButton}
-            onPress={() => {
-              validateInput();
-            }}
+            style={[styles.saveBtn, getIsFormValid() ? "" : styles.btnDisabled]}
+            onPress={() => update(profile)}
+            disabled={!getIsFormValid()}
           >
-            <Text style={styles.buttonLabel}>Save Changes</Text>
+            <Text style={styles.saveBtnText}>Save changes</Text>
           </Pressable>
         </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
+  header: {
+    padding: 12,
+    flexDirection: "row",
+    justifyContent: "center",
+    backgroundColor: "#dee3e9",
+  },
+  logo: {
+    height: 50,
+    width: 150,
+    resizeMode: "contain",
+  },
+  viewScroll: {
+    flex: 1,
+    padding: 10,
+  },
+  headertext: {
+    fontSize: 22,
+    paddingBottom: 10,
+    fontFamily: "Karla-ExtraBold",
+  },
+  text: {
+    fontSize: 16,
+    marginBottom: 5,
+    fontFamily: "Karla-Medium",
+  },
+  inputBox: {
+    alignSelf: "stretch",
+    marginBottom: 10,
+    borderWidth: 1,
+    padding: 10,
+    fontSize: 16,
+    borderRadius: 9,
+    borderColor: "#dfdfe5",
+  },
+  btn: {
+    backgroundColor: "#f4ce14",
+    borderRadius: 9,
+    alignSelf: "stretch",
+    marginVertical: 18,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#cc9a22",
+  },
+  btnDisabled: {
+    backgroundColor: "#98b3aa",
+  },
+  buttons: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 60,
+  },
+  saveBtn: {
+    flex: 1,
+    backgroundColor: "#495e57",
+    borderRadius: 9,
+    alignSelf: "stretch",
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#3f554d",
+  },
+  saveBtnText: {
+    fontSize: 18,
+    color: "#FFFFFF",
+    alignSelf: "center",
+    fontFamily: "Karla-Bold",
+  },
+  discardBtn: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 9,
+    alignSelf: "stretch",
+    marginRight: 18,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#83918c",
+  },
+  discardBtnText: {
+    fontSize: 18,
+    color: "#3e524b",
+    alignSelf: "center",
+    fontFamily: "Karla-Bold",
+  },
+  btntext: {
+    fontSize: 22,
+    color: "#3e524b",
+    fontFamily: "Karla-Bold",
+    alignSelf: "center",
+  },
+  section: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  paragraph: {
+    fontSize: 15,
+  },
+  checkbox: {
+    margin: 8,
+  },
+  error: {
+    color: "#d14747",
+    fontWeight: "bold",
+  },
+  avatarContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 10,
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  avatarEmpty: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#0b9a6a",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarEmptyText: {
+    fontSize: 32,
+    color: "#FFFFFF",
+    fontWeight: "bold",
+  },
+  avatarButtons: {
+    flexDirection: "row",
+  },
+  changeBtn: {
+    backgroundColor: "#495e57",
+    borderRadius: 9,
+    marginHorizontal: 18,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#3f554d",
+  },
+  removeBtn: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 9,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#83918c",
+  },
+});
 
 export default Profile;
